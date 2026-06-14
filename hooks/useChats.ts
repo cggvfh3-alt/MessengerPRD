@@ -23,7 +23,6 @@ export function useChats(userId: string) {
     setChats(data);
     setError(err);
     setLoading(false);
-    // Total unread from loaded chats
     const unread = data.reduce((sum, c) => sum + (c.unread_count || 0), 0);
     setTotalUnread(unread);
   }, [userId]);
@@ -37,8 +36,9 @@ export function useChats(userId: string) {
   useEffect(() => {
     if (!userId) return;
     loadChats();
-    // Poll for new messages every 5s for unread badge
-    intervalRef.current = setInterval(refreshUnread, 5000);
+    intervalRef.current = setInterval(() => {
+      refreshUnread();
+    }, 8000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
