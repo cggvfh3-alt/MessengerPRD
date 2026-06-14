@@ -1,10 +1,16 @@
 /*
- * @Description: Chat List — main messenger screen
+ * @Description: Chat List — main messenger screen with unread badges
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, ActivityIndicator, RefreshControl,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,7 +29,12 @@ function formatTime(iso: string): string {
 }
 
 function getInitials(name: string): string {
-  return name.split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  return name
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
 }
 
 const AVATAR_COLORS = ['#2DA8FF', '#A371F7', '#00D4AA', '#D29922', '#F85149', '#3FB950'];
@@ -36,59 +47,102 @@ export default function ChatsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState(false);
 
-  const { chats, loading, loadChats, startDirectChat } = useChats(user?.id || '');
+  const { chats, loading, totalUnread, loadChats, startDirectChat } = useChats(user?.id || '');
   const { results, loading: searchLoading, search, clear } = useUserSearch(user?.id || '');
 
   useEffect(() => {
     if (user?.id) loadChats();
   }, [user?.id]);
 
-  const handleSearch = useCallback((q: string) => {
-    setSearchQuery(q);
-    q.trim() ? search(q) : clear();
-  }, [search, clear]);
+  const handleSearch = useCallback(
+    (q: string) => {
+      setSearchQuery(q);
+      q.trim() ? search(q) : clear();
+    },
+    [search, clear]
+  );
 
-  const openChat = useCallback((chat: Chat) => {
-    const chatName = chat.name || chat.other_user?.username || chat.other_user?.email || 'Чат';
-    router.push({ pathname: '/chat/[id]', params: { id: chat.id, name: chatName } } as any);
-  }, [router]);
+  const openChat = useCallback(
+    (chat: Chat) => {
+      const chatName =
+        chat.name || chat.other_user?.username || chat.other_user?.email || 'Чат';
+      router.push({
+        pathname: '/chat/[id]',
+        params: { id: chat.id, name: chatName },
+      } as any);
+    },
+    [router]
+  );
 
-  const startChat = useCallback(async (otherUserId: string, displayName: string) => {
-    const chat = await startDirectChat(otherUserId);
-    if (chat) {
-      setSearchMode(false);
-      setSearchQuery('');
-      clear();
-      router.push({ pathname: '/chat/[id]', params: { id: chat.id, name: displayName } } as any);
-    } else {
-      showAlert('Ошибка', 'Не удалось открыть чат');
-    }
-  }, [startDirectChat, router, clear, showAlert]);
+  const startChat = useCallback(
+    async (otherUserId: string, displayName: string) => {
+      const chat = await startDirectChat(otherUserId);
+      if (chat) {
+        setSearchMode(false);
+        setSearchQuery('');
+        clear();
+        router.push({
+          pathname: '/chat/[id]',
+          params: { id: chat.id, name: displayName },
+        } as any);
+      } else {
+        showAlert('Ошибка', 'Не удалось открыть чат');
+      }
+    },
+    [startDirectChat, router, clear, showAlert]
+  );
 
   const handleLogout = () => {
     showAlert('Выйти из аккаунта?', 'Вы уверены?', [
       { text: 'Отмена', style: 'cancel' },
-      { text: 'Выйти', style: 'destructive', onPress: async () => { await logout(); } },
+      {
+        text: 'Выйти',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+        },
+      },
     ]);
   };
 
   const renderChat = ({ item }: { item: Chat }) => {
-    const name = item.name || item.other_user?.username || item.other_user?.email || 'Неизвестный';
+    const name =
+      item.name || item.other_user?.username || item.other_user?.email || 'Неизвестный';
     const initials = getInitials(name);
     const col = AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+    const hasUnread = (item.unread_count || 0) > 0;
+
     return (
-      <TouchableOpacity style={styles.chatRow} onPress={() => openChat(item)} activeOpacity={0.75}>
+      <TouchableOpacity
+        style={styles.chatRow}
+        onPress={() => openChat(item)}
+        activeOpacity={0.75}
+      >
         <View style={[styles.avatar, { backgroundColor: col + '33', borderColor: col + '55' }]}>
           <Text style={[styles.avatarText, { color: col }]}>{initials}</Text>
         </View>
         <View style={styles.chatInfo}>
           <View style={styles.chatTopRow}>
-            <Text style={styles.chatName} numberOfLines={1}>{name}</Text>
-            {item.last_message_time ? (
-              <Text style={styles.chatTime}>{formatTime(item.last_message_time)}</Text>
-            ) : null}
+            <Text style={styles.chatName} numberOfLines={1}>
+              {name}
+            </Text>
+            <View style={styles.chatMeta}>
+              {item.last_message_time ? (
+                <Text style={styles.chatTime}>{formatTime(item.last_message_time)}</Text>
+              ) : null}
+              {hasUnread ? (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadText}>
+                    {(item.unread_count || 0) > 99 ? '99+' : item.unread_count}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
-          <Text style={styles.chatPreview} numberOfLines={1}>
+          <Text
+            style={[styles.chatPreview, hasUnread && styles.chatPreviewUnread]}
+            numberOfLines={1}
+          >
             {item.last_message || 'Нет сообщений'}
           </Text>
         </View>
@@ -100,14 +154,36 @@ export default function ChatsScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Сообщения</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>ИТП</Text>
+          {totalUnread > 0 ? (
+            <View style={styles.headerBadge}>
+              <Text style={styles.headerBadgeText}>{totalUnread > 99 ? '99+' : totalUnread}</Text>
+            </View>
+          ) : null}
+        </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.iconBtn}
-            onPress={() => { setSearchMode(!searchMode); setSearchQuery(''); clear(); }}
+            onPress={() => {
+              setSearchMode(!searchMode);
+              setSearchQuery('');
+              clear();
+            }}
             activeOpacity={0.75}
           >
-            <MaterialIcons name={searchMode ? 'close' : 'person-search'} size={24} color={Colors.primary} />
+            <MaterialIcons
+              name={searchMode ? 'close' : 'person-search'}
+              size={24}
+              color={Colors.primary}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => router.push('/settings' as any)}
+            activeOpacity={0.75}
+          >
+            <MaterialIcons name="settings" size={22} color={Colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} onPress={handleLogout} activeOpacity={0.75}>
             <MaterialIcons name="logout" size={22} color={Colors.textMuted} />
@@ -174,38 +250,40 @@ export default function ChatsScreen() {
                       <Text style={styles.userName}>{item.username || 'Без имени'}</Text>
                       <Text style={styles.userEmail}>{item.email}</Text>
                     </View>
-                    <MaterialIcons name="send" size={20} color={Colors.primary} />
+                    <MaterialIcons name="chevron-right" size={20} color={Colors.primary} />
                   </TouchableOpacity>
                 );
               }}
             />
           )}
         </View>
+      ) : loading && chats.length === 0 ? (
+        <View style={styles.centerWrap}>
+          <ActivityIndicator color={Colors.primary} size="large" />
+        </View>
+      ) : chats.length === 0 ? (
+        <View style={styles.centerWrap}>
+          <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.textMuted} />
+          <Text style={styles.emptyTitle}>Нет чатов</Text>
+          <Text style={styles.emptyDesc}>
+            Нажмите иконку поиска, чтобы найти пользователя и начать переписку
+          </Text>
+        </View>
       ) : (
-        loading && chats.length === 0 ? (
-          <View style={styles.centerWrap}>
-            <ActivityIndicator color={Colors.primary} size="large" />
-          </View>
-        ) : chats.length === 0 ? (
-          <View style={styles.centerWrap}>
-            <MaterialIcons name="chat-bubble-outline" size={64} color={Colors.textMuted} />
-            <Text style={styles.emptyTitle}>Нет чатов</Text>
-            <Text style={styles.emptyDesc}>
-              Нажмите иконку поиска чтобы найти пользователя и начать переписку
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={chats}
-            keyExtractor={(item) => item.id}
-            renderItem={renderChat}
-            refreshControl={
-              <RefreshControl refreshing={loading} onRefresh={loadChats} tintColor={Colors.primary} />
-            }
-            showsVerticalScrollIndicator={false}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-          />
-        )
+        <FlatList
+          data={chats}
+          keyExtractor={(item) => item.id}
+          renderItem={renderChat}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={loadChats}
+              tintColor={Colors.primary}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
       )}
     </View>
   );
@@ -214,61 +292,136 @@ export default function ChatsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.bg },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.md, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: Font.lg, fontWeight: '800', color: Colors.textPrimary },
+  headerBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  headerBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   headerRight: { flexDirection: 'row', gap: 4 },
   iconBtn: { padding: 8 },
   searchBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    margin: Spacing.md, backgroundColor: Colors.inputBg,
-    borderRadius: Radius.lg, paddingHorizontal: 12, paddingVertical: 10,
-    borderWidth: 1, borderColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    margin: Spacing.md,
+    backgroundColor: Colors.inputBg,
+    borderRadius: Radius.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   searchInput: { flex: 1, fontSize: Font.base, color: Colors.textPrimary },
   userBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: Spacing.md, paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
     backgroundColor: Colors.primary + '0D',
-    borderBottomWidth: 1, borderBottomColor: Colors.primary + '22',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.primary + '22',
   },
   userBannerText: { fontSize: Font.xs, color: Colors.textSecondary },
   chatRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: Spacing.md, paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
   },
   avatar: {
-    width: 50, height: 50, borderRadius: 25,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, marginRight: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginRight: 12,
   },
   avatarText: { fontSize: Font.md, fontWeight: '700' },
   chatInfo: { flex: 1 },
   chatTopRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 3,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3,
   },
-  chatName: { fontSize: Font.base, fontWeight: '600', color: Colors.textPrimary, flex: 1, marginRight: 8 },
+  chatName: {
+    fontSize: Font.base,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    flex: 1,
+    marginRight: 8,
+  },
+  chatMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chatTime: { fontSize: Font.xs, color: Colors.textMuted },
+  unreadBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  unreadText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   chatPreview: { fontSize: Font.sm, color: Colors.textSecondary },
+  chatPreviewUnread: { color: Colors.textPrimary, fontWeight: '500' },
   separator: { height: 1, backgroundColor: Colors.border, marginLeft: 74 },
   searchResults: { flex: 1, paddingHorizontal: Spacing.md, paddingTop: 12 },
-  sectionLabel: { fontSize: Font.xs, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1, marginBottom: 8 },
+  sectionLabel: {
+    fontSize: Font.xs,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
   userRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
   userAvatar: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   userAvatarText: { fontSize: Font.base, fontWeight: '700' },
   userName: { fontSize: Font.base, fontWeight: '600', color: Colors.textPrimary },
   userEmail: { fontSize: Font.sm, color: Colors.textSecondary },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40 },
+  centerWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 40,
+  },
   emptyWrap: { alignItems: 'center', paddingTop: 48, gap: 12 },
   emptyTitle: { fontSize: Font.md, fontWeight: '700', color: Colors.textPrimary },
-  emptyDesc: { fontSize: Font.sm, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  emptyDesc: {
+    fontSize: Font.sm,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
 });

@@ -1,7 +1,15 @@
 // Messages state and polling hook
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { fetchMessages, sendTextMessage, sendImageMessage, deleteMessage, Message } from '@/services/messages';
+import {
+  fetchMessages,
+  sendTextMessage,
+  sendImageMessage,
+  deleteMessage,
+  Message,
+} from '@/services/messages';
 import { pickAndUploadImage, takePhotoAndUpload } from '@/services/storage';
+import { markChatAsRead } from '@/services/chats';
+import { useAlert } from '@/template';
 
 export function useMessages(chatId: string, userId: string) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -10,59 +18,100 @@ export function useMessages(chatId: string, userId: string) {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { showAlert } = useAlert();
 
   const loadMessages = useCallback(async () => {
     if (!chatId) return;
     const { data, error: err } = await fetchMessages(chatId);
     if (!err) setMessages(data);
+    if (err) setError(err);
   }, [chatId]);
 
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || !userId) return;
     setLoading(true);
     loadMessages().finally(() => setLoading(false));
 
-    // Poll every 3 seconds for new messages
-    intervalRef.current = setInterval(loadMessages, 3000);
+    // Mark as read when opening
+    markChatAsRead(chatId, userId);
+
+    // Poll every 3 seconds
+    intervalRef.current = setInterval(async () => {
+      await loadMessages();
+      markChatAsRead(chatId, userId);
+    }, 3000);
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [chatId, loadMessages]);
+  }, [chatId, userId, loadMessages]);
 
   const sendText = useCallback(async (content: string): Promise<boolean> => {
     if (!content.trim()) return false;
     setSending(true);
     const { data, error: err } = await sendTextMessage(chatId, userId, content.trim());
-    if (err) { setError(err); setSending(false); return false; }
+    if (err) {
+      showAlert('Ошибка отправки', err);
+      setSending(false);
+      return false;
+    }
     if (data) {
-      setMessages((prev) => [...prev, { ...data, sender: { username: null, email: '' } }]);
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === data.id);
+        if (exists) return prev;
+        return [...prev, { ...data, sender: { username: null, email: '' } }];
+      });
     }
     setSending(false);
     return true;
-  }, [chatId, userId]);
+  }, [chatId, userId, showAlert]);
 
   const sendPhoto = useCallback(async (source: 'gallery' | 'camera'): Promise<boolean> => {
     setUploadingPhoto(true);
-    const { url, error: uploadErr } = source === 'camera'
-      ? await takePhotoAndUpload(userId)
-      : await pickAndUploadImage(userId);
+    const { url, error: uploadErr } =
+      source === 'camera'
+        ? await takePhotoAndUpload(userId)
+        : await pickAndUploadImage(userId);
 
-    if (uploadErr) { setError(uploadErr); setUploadingPhoto(false); return false; }
+    if (uploadErr) {
+      showAlert('Ошибка загрузки фото', uploadErr);
+      setUploadingPhoto(false);
+      return false;
+    }
     if (!url) { setUploadingPhoto(false); return false; }
 
     const { data, error: msgErr } = await sendImageMessage(chatId, userId, url);
-    if (msgErr) { setError(msgErr); setUploadingPhoto(false); return false; }
+    if (msgErr) {
+      showAlert('Ошибка отправки', msgErr);
+      setUploadingPhoto(false);
+      return false;
+    }
     if (data) {
-      setMessages((prev) => [...prev, { ...data, sender: { username: null, email: '' } }]);
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === data.id);
+        if (exists) return prev;
+        return [...prev, { ...data, sender: { username: null, email: '' } }];
+      });
     }
     setUploadingPhoto(false);
     return true;
-  }, [chatId, userId]);
+  }, [chatId, userId, showAlert]);
 
   const removeMessage = useCallback(async (messageId: string) => {
     setMessages((prev) => prev.filter((m) => m.id !== messageId));
-    await deleteMessage(messageId);
-  }, []);
+    const { error: err } = await deleteMessage(messageId);
+    if (err) showAlert('Ошибка удаления', err);
+  }, [showAlert]);
 
-  return { messages, loading, sending, uploadingPhoto, error, sendText, sendPhoto, removeMessage, reload: loadMessages };
+  return {
+    messages,
+    loading,
+    sending,
+    uploadingPhoto,
+    error,
+    sendText,
+    sendPhoto,
+    removeMessage,
+    reload: loadMessages,
+  };
 }

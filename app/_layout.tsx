@@ -25,6 +25,10 @@ export default function RootLayout() {
                 headerBackTitle: 'Назад',
               }}
             />
+            <Stack.Screen
+              name="settings"
+              options={{ headerShown: false }}
+            />
           </Stack>
         </AuthProvider>
       </SafeAreaProvider>

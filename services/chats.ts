@@ -9,7 +9,6 @@ export interface Chat {
   created_by: string | null;
   created_at: string;
   updated_at: string;
-  // joined fields
   other_user?: { id: string; username: string | null; email: string };
   last_message?: string;
   last_message_time?: string;
@@ -25,7 +24,6 @@ export interface UserProfile {
 export async function fetchMyChats(userId: string): Promise<{ data: Chat[]; error: string | null }> {
   const supabase = getSupabaseClient();
   try {
-    // Get all chat_ids for current user
     const { data: memberRows, error: memberErr } = await supabase
       .from('chat_members')
       .select('chat_id')
@@ -44,7 +42,18 @@ export async function fetchMyChats(userId: string): Promise<{ data: Chat[]; erro
 
     if (chatErr) return { data: [], error: chatErr.message };
 
-    // For each direct chat, fetch the other user
+    // Fetch read statuses for all chats at once
+    const { data: readStatuses } = await supabase
+      .from('chat_read_status')
+      .select('chat_id, last_read_at')
+      .eq('user_id', userId)
+      .in('chat_id', chatIds);
+
+    const readMap: Record<string, string> = {};
+    for (const rs of readStatuses || []) {
+      readMap[rs.chat_id] = rs.last_read_at;
+    }
+
     const enriched: Chat[] = [];
     for (const chat of chats || []) {
       if (chat.type === 'direct') {
@@ -63,14 +72,14 @@ export async function fetchMyChats(userId: string): Promise<{ data: Chat[]; erro
             .select('id, username, email')
             .eq('id', otherUserId)
             .single();
-          (chat as Chat).other_user = profile || undefined;
+          chat.other_user = profile || undefined;
           if (!chat.name && profile) {
             chat.name = profile.username || profile.email;
           }
         }
       }
 
-      // Fetch last message
+      // Last message
       const { data: lastMsg } = await supabase
         .from('messages')
         .select('content, type, created_at')
@@ -85,12 +94,84 @@ export async function fetchMyChats(userId: string): Promise<{ data: Chat[]; erro
         chat.last_message_time = lastMsg.created_at;
       }
 
+      // Unread count
+      const lastRead = readMap[chat.id];
+      if (lastRead) {
+        const { count } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('chat_id', chat.id)
+          .eq('is_deleted', false)
+          .neq('sender_id', userId)
+          .gt('created_at', lastRead);
+        chat.unread_count = count || 0;
+      } else {
+        // Never read — count all messages not from self
+        const { count } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('chat_id', chat.id)
+          .eq('is_deleted', false)
+          .neq('sender_id', userId);
+        chat.unread_count = count || 0;
+      }
+
       enriched.push(chat);
     }
 
     return { data: enriched, error: null };
   } catch (e: any) {
     return { data: [], error: e.message };
+  }
+}
+
+export async function markChatAsRead(chatId: string, userId: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  await supabase
+    .from('chat_read_status')
+    .upsert(
+      { chat_id: chatId, user_id: userId, last_read_at: new Date().toISOString() },
+      { onConflict: 'chat_id,user_id' }
+    );
+}
+
+export async function getTotalUnreadCount(userId: string): Promise<number> {
+  const supabase = getSupabaseClient();
+  try {
+    const { data: memberRows } = await supabase
+      .from('chat_members')
+      .select('chat_id')
+      .eq('user_id', userId);
+
+    if (!memberRows || memberRows.length === 0) return 0;
+    const chatIds = memberRows.map((r: { chat_id: string }) => r.chat_id);
+
+    const { data: readStatuses } = await supabase
+      .from('chat_read_status')
+      .select('chat_id, last_read_at')
+      .eq('user_id', userId)
+      .in('chat_id', chatIds);
+
+    const readMap: Record<string, string> = {};
+    for (const rs of readStatuses || []) readMap[rs.chat_id] = rs.last_read_at;
+
+    let total = 0;
+    for (const chatId of chatIds) {
+      const lastRead = readMap[chatId];
+      const query = supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('chat_id', chatId)
+        .eq('is_deleted', false)
+        .neq('sender_id', userId);
+
+      const { count } = lastRead ? await query.gt('created_at', lastRead) : await query;
+      total += count || 0;
+    }
+
+    return total;
+  } catch {
+    return 0;
   }
 }
 
@@ -112,7 +193,6 @@ export async function createOrGetDirectChat(
 ): Promise<{ data: Chat | null; error: string | null }> {
   const supabase = getSupabaseClient();
   try {
-    // Check if direct chat already exists between these two users
     const { data: myChats } = await supabase
       .from('chat_members')
       .select('chat_id')
@@ -127,7 +207,6 @@ export async function createOrGetDirectChat(
         .in('chat_id', myIds);
 
       if (shared && shared.length > 0) {
-        // Check if it's a direct chat
         const { data: existing } = await supabase
           .from('chats')
           .select('*')
@@ -139,7 +218,6 @@ export async function createOrGetDirectChat(
       }
     }
 
-    // Create new direct chat
     const { data: newChat, error: chatErr } = await supabase
       .from('chats')
       .insert({ type: 'direct', created_by: currentUserId })
@@ -148,7 +226,6 @@ export async function createOrGetDirectChat(
 
     if (chatErr) return { data: null, error: chatErr.message };
 
-    // Add both users as members
     const { error: memberErr } = await supabase
       .from('chat_members')
       .insert([
@@ -162,4 +239,16 @@ export async function createOrGetDirectChat(
   } catch (e: any) {
     return { data: null, error: e.message };
   }
+}
+
+export async function updateUserProfile(
+  userId: string,
+  updates: { username?: string }
+): Promise<{ error: string | null }> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from('user_profiles')
+    .update(updates)
+    .eq('id', userId);
+  return { error: error?.message || null };
 }

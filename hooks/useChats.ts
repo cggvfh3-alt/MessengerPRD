@@ -1,11 +1,20 @@
 // Chat list state management hook
-import { useState, useCallback } from 'react';
-import { fetchMyChats, createOrGetDirectChat, searchUsers, Chat, UserProfile } from '@/services/chats';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  fetchMyChats,
+  createOrGetDirectChat,
+  searchUsers,
+  getTotalUnreadCount,
+  Chat,
+  UserProfile,
+} from '@/services/chats';
 
 export function useChats(userId: string) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalUnread, setTotalUnread] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadChats = useCallback(async () => {
     if (!userId) return;
@@ -14,6 +23,25 @@ export function useChats(userId: string) {
     setChats(data);
     setError(err);
     setLoading(false);
+    // Total unread from loaded chats
+    const unread = data.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+    setTotalUnread(unread);
+  }, [userId]);
+
+  const refreshUnread = useCallback(async () => {
+    if (!userId) return;
+    const count = await getTotalUnreadCount(userId);
+    setTotalUnread(count);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    loadChats();
+    // Poll for new messages every 5s for unread badge
+    intervalRef.current = setInterval(refreshUnread, 5000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [userId]);
 
   const startDirectChat = useCallback(async (otherUserId: string): Promise<Chat | null> => {
@@ -26,7 +54,7 @@ export function useChats(userId: string) {
     return null;
   }, [userId, loadChats]);
 
-  return { chats, loading, error, loadChats, startDirectChat };
+  return { chats, loading, error, totalUnread, loadChats, startDirectChat };
 }
 
 export function useUserSearch(currentUserId: string) {
