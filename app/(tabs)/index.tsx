@@ -20,8 +20,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useChats, useUserSearch } from '@/hooks/useChats';
 import { Chat } from '@/services/chats';
 import { updateOnlineStatus } from '@/services/social';
+import { registerForPushNotifications, clearBadge } from '@/services/notifications';
 import { AppState } from 'react-native';
-import { useEffect as useRNEffect } from 'react';
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
@@ -48,6 +48,13 @@ export default function ChatsScreen() {
 
   const { chats, loading, totalUnread, loadChats, startDirectChat } = useChats(user?.id || '');
   const { results, loading: searchLoading, search, clear } = useUserSearch(user?.id || '');
+
+  // Push notification registration
+  useEffect(() => {
+    if (!user?.id) return;
+    registerForPushNotifications(user.id).catch(() => {});
+    clearBadge().catch(() => {});
+  }, [user?.id]);
 
   // Online status management
   useEffect(() => {

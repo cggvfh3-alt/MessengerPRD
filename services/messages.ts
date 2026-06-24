@@ -120,6 +120,21 @@ export async function fetchMessages(chatId: string): Promise<{ data: Message[]; 
   return { data: enriched, error: null };
 }
 
+/** Fire-and-forget: trigger push notification edge function */
+function triggerPushNotification(
+  chatId: string,
+  senderId: string,
+  content: string | null,
+  messageType: string
+): void {
+  const supabase = getSupabaseClient();
+  supabase.functions
+    .invoke('send-push-notification', {
+      body: { chatId, senderId, content, messageType },
+    })
+    .catch(() => {}); // never block message sending
+}
+
 export async function sendTextMessage(
   chatId: string,
   senderId: string,
@@ -141,6 +156,7 @@ export async function sendTextMessage(
 
   if (error) return { data: null, error: error.message };
   await supabase.from('chats').update({ updated_at: new Date().toISOString() }).eq('id', chatId);
+  triggerPushNotification(chatId, senderId, content, 'text');
   return { data, error: null };
 }
 
@@ -165,6 +181,7 @@ export async function sendImageMessage(
 
   if (error) return { data: null, error: error.message };
   await supabase.from('chats').update({ updated_at: new Date().toISOString() }).eq('id', chatId);
+  triggerPushNotification(chatId, senderId, null, 'image');
   return { data, error: null };
 }
 
@@ -189,6 +206,7 @@ export async function sendVoiceMessage(
 
   if (error) return { data: null, error: error.message };
   await supabase.from('chats').update({ updated_at: new Date().toISOString() }).eq('id', chatId);
+  triggerPushNotification(chatId, senderId, null, 'voice');
   return { data, error: null };
 }
 
